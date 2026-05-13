@@ -1,7 +1,9 @@
 package edu.touro.las.mcon364.test2;
 
+import java.util.ArrayList;
+import java.util.IntSummaryStatistics;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -47,8 +49,9 @@ public class ParallelReportBuilder {
                                 int batchesProcessed) {}
 
 
-    // TODO 1: declare and initialize private thread-safe progress tracking state called numberOfBatchesProcessed
-    
+    // TODO 1: declare and initialize private thread-safe progress
+    //  tracking state called numberOfBatchesProcessed
+    private final AtomicInteger numberOfBatchesProcessed = new AtomicInteger(0);
     /*
      * TODO 2 — generateReport(List<List<Transaction>> batches, int workers)
      *
@@ -76,9 +79,10 @@ public class ParallelReportBuilder {
             throws InterruptedException, ExecutionException, IllegalArgumentException {
 
         // TODO 2A: validate inputs where appropriate
-
+        if(batches == null||batches.isEmpty()) throw new IllegalArgumentException();
+        if(workers <= 0) throw new IllegalArgumentException();
         // TODO 2B: create the concurrency structure needed for the pattern you chose
-
+        ExecutorService executor = Executors.newFixedThreadPool(workers);
 
         // TODO 2C: submit or assign one unit of work per batch
         // Each unit of work should:
@@ -91,14 +95,34 @@ public class ParallelReportBuilder {
         int globalMax = Integer.MIN_VALUE;
         int globalMin = Integer.MAX_VALUE;
 
+        List<Future<BatchStats>> futures = new ArrayList<>();
+        for (List<Transaction> batch : batches) {
+            Future<BatchStats> futureStats = executor.submit(()->{
+                IntSummaryStatistics stats = batch.stream()
+                        .mapToInt(Transaction::amount)
+                        .summaryStatistics();
+            numberOfBatchesProcessed.incrementAndGet();
+            return new BatchStats(stats.getSum(), stats.getCount(), stats.getMax(), stats.getMin());
+            });
+            futures.add(futureStats);
+        }
+
         // TODO 2D: after all work has been started, collect results
         // and combine them into the summary variables above
         // you don't have to use streams here. In this case for loop is acceptable
+        for (Future<BatchStats> future : futures) {
+            BatchStats batchStats = future.get();
+            totalAmount += batchStats.totalAmount;
+            totalCount += batchStats.transactionCount;
+            globalMax = Math.max(globalMax, batchStats.maxTransactionAmount);
+            globalMin = Math.min(globalMin, batchStats.minTransactionAmount);
+        }
 
         // TODO 2E: shut down any concurrency resources you created
-
+        executor.shutdown();
+        executor.awaitTermination(30, TimeUnit.SECONDS);
         // TODO 2F: return the completed ReportSummary
-        return null; //placeholder
+        return new ReportSummary(totalAmount, totalCount, globalMax, globalMin, numberOfBatchesProcessed.get()); //placeholder
     }
 
     /*
@@ -107,6 +131,6 @@ public class ParallelReportBuilder {
      * Return the current number of batches processed.
      */
     public int getProcessedBatchCount() {
-       return 0; //placeholder
+       return numberOfBatchesProcessed.get(); //placeholder
     }
 }
